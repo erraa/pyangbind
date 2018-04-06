@@ -287,6 +287,28 @@ def RestrictedClassType(*args, **kwargs):
             except Exception:
               raise TypeError("must specify a numeric type for a range " +
                                   "argument")
+
+        elif rtype == "sub_dict_keys":
+          new_rarg = copy.deepcopy(rarg)
+          for k in rarg:
+            if k.startswith("@"):
+              new_rarg.pop(k, None)
+          #populate bits positions
+          bits_positions = []
+          for k in new_rarg:
+            if "position" in new_rarg[k]:
+              bits_positions.append(int(new_rarg[k]["position"]))
+          p = 0
+          for k in new_rarg:
+            while p in bits_positions:
+              p += 1
+            if "position" not in new_rarg[k]:
+              new_rarg[k]["position"] = p
+            p += 1
+          print new_rarg.keys()
+          self._restriction_tests.append(sub_list_check(new_rarg.keys()))
+          self._bits_dict = new_rarg
+
         elif rtype == "length":
           # When the type is a binary then the length is specified in
           # octets rather than bits, so we must specify the length to

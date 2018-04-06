@@ -495,6 +495,7 @@ def build_typedefs(ctx, defnd):
   known_types = list(class_map.keys())
   known_types.append('enumeration')
   known_types.append('leafref')
+  known_types.append('bits')
   base_types = copy.deepcopy(known_types)
   process_typedefs_ordered = []
 
@@ -729,13 +730,21 @@ def get_children(ctx, fd, i_children, module, parent, path=str(),
       for choice_ch in ch.i_children:
         # these are case statements
         for case_ch in choice_ch.i_children:
-          elements += get_element(ctx, fd, case_ch, module, parent,
+          if not get_element(ctx, fd, case_ch, module, parent,
             path + "/" + case_ch.arg, parent_cfg=parent_cfg,
-            choice=(ch.arg, choice_ch.arg), register_paths=register_paths)
+            choice=(ch.arg, choice_ch.arg), register_paths=register_paths):
+            continue
+          else:
+            elements += get_element(ctx, fd, case_ch, module, parent,
+              path + "/" + case_ch.arg, parent_cfg=parent_cfg,
+              choice=(ch.arg, choice_ch.arg), register_paths=register_paths)
           if ctx.opts.split_class_dir:
             if hasattr(case_ch, "i_children") and len(case_ch.i_children):
               import_req.append(case_ch.arg)
     else:
+      if not get_element(ctx, fd, ch, module, parent, path + "/" + ch.arg,
+          parent_cfg=parent_cfg, choice=choice, register_paths=register_paths):
+        continue
       elements += get_element(ctx, fd, ch, module, parent, path + "/" + ch.arg,
         parent_cfg=parent_cfg, choice=choice, register_paths=register_paths)
 
@@ -754,6 +763,8 @@ def get_children(ctx, fd, i_children, module, parent, path=str(),
 
   # 'container', 'module', 'list' and 'submodule' all have their own classes
   # generated.
+  if type(parent.keyword) != str:
+    return None
   if parent.keyword in ["container", "module", "list", "submodule", "input",
                          "output", "rpc", "notification"]:
     if ctx.opts.split_class_dir:
@@ -961,7 +972,7 @@ def get_children(ctx, fd, i_children, module, parent, path=str(),
           class_str["arg"] += ", is_keyval=True"
         class_str["arg"] += ", namespace='%s'" % i["namespace"]
         class_str["arg"] += ", defining_module='%s'" % i["defining_module"]
-        class_str["arg"] += ", yang_type='%s'" % i["origtype"]
+        class_str["arg"] += ", yang_type='%s'" % ''.join(map(str, i["origtype"]))
         class_str["arg"] += ", is_config=%s" % (i["config"] and parent_cfg)
         classes[i["name"]] = class_str
 
@@ -1208,7 +1219,23 @@ def build_elemtype(ctx, et, prefix=False):
     cls = "leaf"
     # Enumerations are built as RestrictedClasses where the value that is
     # provided to the class is check against the keys of a dictionary.
-    if et.arg == "enumeration":
+    if et.arg == "bits":
+        bits_dict = {}
+        for bit in et.search('bit'):
+           bits_dict[unicode(bit.arg)] = {}
+           position = bit.search_one('position')
+           if position is not None:
+               bits_dict[unicode(bit.arg)]["position"] = int(position.arg)
+        elemtype = {"native_type": """RestrictedClassType(base_type=unicode, \
+                                      restriction_type="sub_dict_keys", \
+                                      restriction_arg=%s,)""" %
+                                      (bits_dict),
+                    "restriction_argument": bits_dict,
+                    "restriction_type": "sub_dict_keys",
+                    "parent_type": "string",
+                    "base_type": True}
+
+    elif et.arg == "enumeration":
       enumeration_dict = {}
       for enum in et.search('enum'):
         enumeration_dict[unicode(enum.arg)] = {}
@@ -1289,6 +1316,8 @@ def build_elemtype(ctx, et, prefix=False):
       # class_map for the defined type, since these are not 'derived' types
       # at this point. In the case that we are referencing a type that is a
       # typedef, then this has been added to the class_map.
+      if et.arg == "instance-identifier":
+        et.arg = "node-instance-identifier"
       try:
         elemtype = class_map[et.arg]
       except KeyError:
@@ -1458,6 +1487,10 @@ def get_element(ctx, fd, element, module, parent, path,
   if not has_children:
     if element.keyword in ["leaf-list"]:
       create_list = True
+    if element.raw_keyword == "anyxml":
+      return False
+    if type(element.raw_keyword) != str:
+      return False
     cls, elemtype = copy.deepcopy(build_elemtype(ctx,
                         element.search_one('type')))
 
